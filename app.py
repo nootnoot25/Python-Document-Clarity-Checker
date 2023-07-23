@@ -2,6 +2,9 @@ from flask import Flask, render_template, request
 import os
 import torch
 import pyiqa
+import numpy as np
+from skimage import io, color, util, measure
+import matplotlib.pyplot as plt
 
 app = Flask(__name__)
 
@@ -50,8 +53,50 @@ def upload_file():
             file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
             file.save(file_path)
 
+            image = io.imread(file_path)
+
+            # Step 2: Convert the image to RGB if it's grayscale
+            if image.ndim == 2:
+                image = color.gray2rgb(image)
+
+            # Step 3: Create a binary mask for pixels with RGB values
+            threshold_value = 235
+            binary_mask = np.all(image >= threshold_value, axis=-1)
+
+            # Step 4: Convert the binary mask to a data type that can be used as a mask
+            binary_mask = util.img_as_bool(binary_mask)
+
+            # Step 5: Use the binary mask to isolate the area with the target RGB values
+            isolated_area = np.zeros_like(image)
+            isolated_area[binary_mask] = image[binary_mask]
+
+            # Step 6: Perform connected component analysis to identify blobs in the isolated area
+            labeled_area, num_labels = measure.label(binary_mask, return_num=True)
+            blob_sizes = np.bincount(labeled_area.ravel())
+
+            # Step 7: Define the threshold for minimum blob size (you can adjust this value)
+            min_blob_size_threshold = 20
+
+            # Step 8: Check if the isolated area blob is of a certain size
+            if blob_sizes[num_labels - 1] >= min_blob_size_threshold:
+                print("The isolated area contains glare.")
+                glarepresent = "glare is present"
+            else:
+                print("The isolated area does not have glare.")
+                glarepresent = "glare is not present"
+
+            fig, axes = plt.subplots(1, 2, figsize=(10, 5))
+            axes[0].imshow(image)
+            axes[0].set_title('Original Image')
+
+            axes[1].imshow(isolated_area)
+            axes[1].set_title('Isolated Areas')
+
+            plt.show()
+
             score = calculate_iqa_score(file_path)
-            return f"File '{filename}' successfully uploaded, clarity score is {score} "
+
+            return f"File '{filename}' successfully uploaded, clarity score is {score}, {glarepresent}"
     return "Something went wrong"
 
 
